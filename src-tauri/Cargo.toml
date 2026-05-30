@@ -1,0 +1,20 @@
+[package]
+name = "meeting-recap-app"
+version = "0.1.0"
+description = "Tauri shell for local-first meeting recap"
+authors = ["chuongtong"]
+edition = "2021"
+
+[lib]
+name = "meeting_recap_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-shell = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

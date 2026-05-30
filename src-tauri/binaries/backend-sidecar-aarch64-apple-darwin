@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PROJECT_ROOT="${MEETING_RECAP_PROJECT_ROOT:-}"
+BACKEND_PORT="${MEETING_RECAP_BACKEND_PORT:-8000}"
+
+if [[ -z "$PROJECT_ROOT" ]]; then
+  echo "MEETING_RECAP_PROJECT_ROOT is required" >&2
+  exit 1
+fi
+
+BACKEND_DIR="$PROJECT_ROOT/backend"
+PYTHON_BIN="$BACKEND_DIR/.venv/bin/python"
+
+if [[ ! -x "$PYTHON_BIN" ]]; then
+  echo "Backend Python runtime not found at $PYTHON_BIN" >&2
+  exit 1
+fi
+
+exec "$PYTHON_BIN" -m uvicorn app.main:app --app-dir "$BACKEND_DIR" --host 127.0.0.1 --port "$BACKEND_PORT"
