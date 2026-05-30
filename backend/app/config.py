@@ -40,8 +40,8 @@ def load_settings() -> Settings:
         log_root=log_root,
         database_path=database_path,
         legacy_root=legacy_root,
-        transcribe_script=legacy_root / "run_transcribe.sh",
-        transcribe_speakers_script=legacy_root / "run_transcribe_with_speakers.sh",
+        transcribe_script=legacy_root / "transcribe/run_transcribe.sh",
+        transcribe_speakers_script=legacy_root / "transcribe/run_transcribe_with_speakers.sh",
         default_model=os.environ.get("MEETING_RECAP_MODEL", "large-v3"),
         partial_model=os.environ.get("MEETING_RECAP_PARTIAL_MODEL", "small"),
     )
