@@ -1,4 +1,4 @@
-import { FileDown, Sparkles, Trash2 } from "lucide-react";
+import { FileDown, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import type { AppSettings } from "@/types";
@@ -15,8 +15,6 @@ interface SettingsPanelProps {
   onSaveApiKey: (apiKey: string) => Promise<unknown>;
   onGenerateRecap: (sessionId: string) => Promise<unknown>;
   onExportMarkdown: (sessionId: string) => Promise<unknown>;
-  onDeleteSession: (sessionId: string) => Promise<unknown>;
-  onClearHistory: () => Promise<unknown>;
 }
 
 export function SettingsPanel({
@@ -27,8 +25,6 @@ export function SettingsPanel({
   onSaveApiKey,
   onGenerateRecap,
   onExportMarkdown,
-  onDeleteSession,
-  onClearHistory,
 }: SettingsPanelProps) {
   const [openaiModel, setOpenaiModel] = useState("gpt-4.1-mini");
   const [refineAfterMeeting, setRefineAfterMeeting] = useState(true);
@@ -138,23 +134,6 @@ export function SettingsPanel({
         >
           <FileDown className="size-4" />
           Export markdown
-        </button>
-        <button
-          type="button"
-          disabled={disabled || !selectedSessionId}
-          onClick={() => selectedSessionId && void onDeleteSession(selectedSessionId)}
-          className="inline-flex items-center gap-2 rounded-xl border border-danger/30 px-4 py-2 text-sm text-danger hover:bg-danger/10 disabled:opacity-50"
-        >
-          <Trash2 className="size-4" />
-          Delete session
-        </button>
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={() => void onClearHistory()}
-          className="inline-flex items-center gap-2 rounded-xl border border-danger/30 px-4 py-2 text-sm text-danger hover:bg-danger/10 disabled:opacity-50"
-        >
-          Clear history
         </button>
       </div>
     </section>

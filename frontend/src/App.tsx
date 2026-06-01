@@ -1,14 +1,13 @@
 import { useEffect, useState } from "react";
 
 import * as api from "@/api/tauri";
-import { CapturePanel } from "@/components/CapturePanel";
-import { Header } from "@/components/Header";
+import { Header, type AppScreen } from "@/components/Header";
 import { RecapPanel } from "@/components/RecapPanel";
 import { RecordingHub } from "@/components/RecordingHub";
-import { SettingsPanel } from "@/components/SettingsPanel";
 import { Sidebar } from "@/components/Sidebar";
 import { TranscriptTimeline } from "@/components/TranscriptTimeline";
 import { useMeetingApp } from "@/hooks/useMeetingApp";
+import { SettingsScreen } from "@/views/SettingsScreen";
 
 function App() {
   const {
@@ -29,6 +28,7 @@ function App() {
     refreshAll,
   } = useMeetingApp();
 
+  const [screen, setScreen] = useState<AppScreen>("meetings");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     if (typeof window === "undefined") {
@@ -47,6 +47,7 @@ function App() {
   return (
     <div className="flex h-full flex-col gap-4 p-4 lg:p-6">
       <Header
+        screen={screen}
         ipcConnected={ipcConnected}
         isRefreshing={isRefreshing}
         modelStatus={modelStatus}
@@ -54,6 +55,8 @@ function App() {
         onToggleTheme={() => setTheme((current) => (current === "dark" ? "light" : "dark"))}
         onRefresh={() => void refreshAll()}
         onDownloadModel={() => void runAction("Download default model", api.downloadDefaultModel)}
+        onOpenSettings={() => setScreen("settings")}
+        onBackToMeetings={() => setScreen("meetings")}
       />
 
       <div
@@ -68,18 +71,47 @@ function App() {
         {statusMessage}
       </div>
 
-      <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[auto_minmax(0,1fr)]">
-        <Sidebar
-          collapsed={sidebarCollapsed}
-          sessions={sessions}
+      {screen === "settings" ? (
+        <SettingsScreen
+          captureState={captureState}
+          settings={appState?.settings ?? null}
           selectedSessionId={selectedSessionId}
-          activeSessionId={appState?.activeSessionId ?? null}
-          onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
-          onSelectSession={selectSession}
+          disabled={isProcessing}
+          onRequestPermission={() =>
+            runAction("Request system audio permission", api.requestSystemAudioPermission)
+          }
+          onSimulateLoss={(sourceKind) =>
+            runAction("Simulate device loss", () => api.simulateDeviceLoss(sourceKind))
+          }
+          onRecoverDevice={(sourceKind) =>
+            runAction("Recover capture device", () => api.recoverCaptureDevice(sourceKind))
+          }
+          onSaveSettings={(input) => runAction("Save settings", () => api.updateSettings(input))}
+          onSaveApiKey={(key) => runAction("Save API key", () => api.saveOpenAiApiKey(key))}
+          onGenerateRecap={(sessionId) =>
+            runAction("Generate recap", () => api.generateRecap(sessionId))
+          }
+          onExportMarkdown={(sessionId) =>
+            runAction("Export markdown", async () => api.exportSessionMarkdown(sessionId))
+          }
         />
+      ) : (
+        <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[auto_minmax(0,1fr)]">
+          <Sidebar
+            collapsed={sidebarCollapsed}
+            sessions={sessions}
+            selectedSessionId={selectedSessionId}
+            activeSessionId={appState?.activeSessionId ?? null}
+            disabled={isProcessing}
+            onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
+            onSelectSession={selectSession}
+            onDeleteSession={(sessionId) =>
+              runAction("Delete session", () => api.deleteSession(sessionId))
+            }
+            onClearHistory={() => runAction("Clear history", api.clearHistory)}
+          />
 
-        <div className="grid min-h-0 gap-4 overflow-y-auto xl:grid-cols-2">
-          <div className="space-y-4">
+          <div className="flex min-h-0 flex-col gap-4 overflow-y-auto">
             <RecordingHub
               activeSession={activeSession}
               hasActiveSession={hasActiveSession}
@@ -105,46 +137,7 @@ function App() {
               }}
             />
 
-            <CapturePanel
-              captureState={captureState}
-              disabled={isProcessing}
-              onRequestPermission={() =>
-                runAction("Request system audio permission", api.requestSystemAudioPermission)
-              }
-              onSimulateLoss={(sourceKind) =>
-                runAction("Simulate device loss", () => api.simulateDeviceLoss(sourceKind))
-              }
-              onRecoverDevice={(sourceKind) =>
-                runAction("Recover capture device", () => api.recoverCaptureDevice(sourceKind))
-              }
-            />
-
-            <SettingsPanel
-              settings={appState?.settings ?? null}
-              selectedSessionId={selectedSessionId}
-              disabled={isProcessing}
-              onSaveSettings={(input) =>
-                runAction("Save settings", () => api.updateSettings(input))
-              }
-              onSaveApiKey={(key) => runAction("Save API key", () => api.saveOpenAiApiKey(key))}
-              onGenerateRecap={(sessionId) =>
-                runAction("Generate recap", () => api.generateRecap(sessionId))
-              }
-              onExportMarkdown={(sessionId) =>
-                runAction("Export markdown", async () => {
-                  const exportPath = await api.exportSessionMarkdown(sessionId);
-                  return exportPath;
-                })
-              }
-              onDeleteSession={(sessionId) =>
-                runAction("Delete session", () => api.deleteSession(sessionId))
-              }
-              onClearHistory={() => runAction("Clear history", api.clearHistory)}
-            />
-          </div>
-
-          <div className="space-y-4">
-            <section className="glass-panel rounded-2xl p-5">
+            <section className="glass-panel min-h-0 flex-1 rounded-2xl p-5">
               <div className="mb-4 flex items-center justify-between gap-3">
                 <div>
                   <h2 className="text-lg font-semibold">
@@ -173,7 +166,7 @@ function App() {
             </section>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

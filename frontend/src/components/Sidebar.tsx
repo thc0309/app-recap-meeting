@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, History } from "lucide-react";
+import { ChevronLeft, ChevronRight, History, Trash2 } from "lucide-react";
 
 import { StatusBadge } from "@/components/StatusBadge";
 import type { MeetingSession } from "@/types";
@@ -9,8 +9,11 @@ interface SidebarProps {
   sessions: MeetingSession[];
   selectedSessionId: string | null;
   activeSessionId: string | null;
+  disabled: boolean;
   onToggleCollapsed: () => void;
   onSelectSession: (sessionId: string) => void;
+  onDeleteSession: (sessionId: string) => void;
+  onClearHistory: () => void;
 }
 
 export function Sidebar({
@@ -18,8 +21,11 @@ export function Sidebar({
   sessions,
   selectedSessionId,
   activeSessionId,
+  disabled,
   onToggleCollapsed,
   onSelectSession,
+  onDeleteSession,
+  onClearHistory,
 }: SidebarProps) {
   return (
     <aside
@@ -89,6 +95,28 @@ export function Sidebar({
           );
         })}
       </div>
+
+      {!collapsed && (
+        <div className="mt-3 flex flex-col gap-2 border-t border-border pt-3">
+          <button
+            type="button"
+            disabled={disabled || !selectedSessionId}
+            onClick={() => selectedSessionId && onDeleteSession(selectedSessionId)}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-danger/30 px-3 py-2 text-sm text-danger hover:bg-danger/10 disabled:opacity-50"
+          >
+            <Trash2 className="size-4" />
+            Delete session
+          </button>
+          <button
+            type="button"
+            disabled={disabled || sessions.length === 0}
+            onClick={() => onClearHistory()}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-danger/30 px-3 py-2 text-sm text-danger hover:bg-danger/10 disabled:opacity-50"
+          >
+            Clear history
+          </button>
+        </div>
+      )}
     </aside>
   );
 }
