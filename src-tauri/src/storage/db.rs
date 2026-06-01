@@ -225,6 +225,14 @@ pub fn replace_segments(
                 INSERT INTO segments (
                   id, session_id, source_type, speaker_label, start_time_ms, end_time_ms, text, created_at_unix_ms
                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                ON CONFLICT(id) DO UPDATE SET
+                  session_id = excluded.session_id,
+                  source_type = excluded.source_type,
+                  speaker_label = excluded.speaker_label,
+                  start_time_ms = excluded.start_time_ms,
+                  end_time_ms = excluded.end_time_ms,
+                  text = excluded.text,
+                  created_at_unix_ms = excluded.created_at_unix_ms
                 "#,
                 params![
                     segment.id,

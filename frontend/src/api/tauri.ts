@@ -7,8 +7,10 @@ import type {
   CreateSessionInput,
   FinalizeSessionInput,
   ModelStatusSnapshot,
+  LiveTranscriptSnapshot,
   SessionDetailSnapshot,
   UpdateSettingsInput,
+  WhisperModelId,
 } from "@/types";
 
 export async function health(): Promise<string> {
@@ -31,6 +33,10 @@ export async function getSessionDetail(
   sessionId: string,
 ): Promise<SessionDetailSnapshot> {
   return invoke("get_session_detail", { sessionId });
+}
+
+export async function getLiveTranscript(): Promise<LiveTranscriptSnapshot> {
+  return invoke("get_live_transcript");
 }
 
 export async function createSession(
@@ -83,8 +89,14 @@ export async function saveOpenAiApiKey(apiKey: string): Promise<void> {
   return invoke("save_openai_api_key", { apiKey });
 }
 
-export async function downloadDefaultModel(): Promise<void> {
-  return invoke("download_default_model");
+export async function selectWhisperModel(
+  modelId: WhisperModelId,
+): Promise<AppStateSnapshot> {
+  return invoke("select_whisper_model", { modelId });
+}
+
+export async function downloadWhisperModel(modelId: WhisperModelId): Promise<void> {
+  return invoke("download_whisper_model", { modelId });
 }
 
 export async function generateRecap(sessionId: string): Promise<AppStateSnapshot> {

@@ -4,11 +4,48 @@ use std::{
     time::Duration,
 };
 
-pub const DEFAULT_WHISPER_MODEL_URL: &str =
-    "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin";
+#[derive(Clone, Copy, Debug)]
+pub struct WhisperModelSpec {
+    pub id: &'static str,
+    pub label: &'static str,
+    pub file_name: &'static str,
+    pub download_url: &'static str,
+    pub approx_size_bytes: u64,
+}
 
-/// ggml-small.bin is ~466 MB; reject obvious HTML/error payloads.
+pub const DEFAULT_WHISPER_MODEL_ID: &str = "medium";
+
+const AVAILABLE_MODELS: [WhisperModelSpec; 2] = [
+    WhisperModelSpec {
+        id: "small",
+        label: "Whisper Small",
+        file_name: "ggml-small.bin",
+        download_url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin",
+        approx_size_bytes: 466 * 1024 * 1024,
+    },
+    WhisperModelSpec {
+        id: "medium",
+        label: "Whisper Medium",
+        file_name: "ggml-medium.bin",
+        download_url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin",
+        approx_size_bytes: 1_500 * 1024 * 1024,
+    },
+];
+
+/// Reject obvious HTML/error payloads regardless of chosen model.
 const MIN_MODEL_BYTES: u64 = 50 * 1024 * 1024;
+
+pub fn available_models() -> &'static [WhisperModelSpec] {
+    &AVAILABLE_MODELS
+}
+
+pub fn default_model() -> &'static WhisperModelSpec {
+    find_model(DEFAULT_WHISPER_MODEL_ID).expect("default Whisper model should exist")
+}
+
+pub fn find_model(model_id: &str) -> Option<&'static WhisperModelSpec> {
+    AVAILABLE_MODELS.iter().find(|model| model.id == model_id)
+}
 
 pub fn huggingface_token() -> Option<String> {
     std::env::var("HF_TOKEN")
@@ -79,8 +116,27 @@ fn looks_like_html(prefix: &[u8]) -> bool {
         || sample.trim_start().starts_with('{')
 }
 
-/// Streams the model to `dest_path` via a `.tmp` sibling file.
+fn format_expected_model_name(dest_path: &Path) -> String {
+    dest_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("whisper model")
+        .to_string()
+}
+
 pub fn download_to_file(url: &str, dest_path: &Path) -> Result<(), String> {
+    download_to_file_with_progress(url, dest_path, |_downloaded, _total| {})
+}
+
+/// Streams the model to `dest_path` via a `.tmp` sibling file.
+pub fn download_to_file_with_progress<F>(
+    url: &str,
+    dest_path: &Path,
+    mut on_progress: F,
+) -> Result<(), String>
+where
+    F: FnMut(u64, Option<u64>),
+{
     let temp_path = dest_path.with_extension("bin.tmp");
     if temp_path.exists() {
         std::fs::remove_file(&temp_path)
@@ -90,13 +146,16 @@ pub fn download_to_file(url: &str, dest_path: &Path) -> Result<(), String> {
     let client = build_client()?;
     let mut response = send_model_request(&client, url)?;
     validate_response(&response)?;
+    let total_bytes = response.content_length();
 
     let mut file = std::fs::File::create(&temp_path)
         .map_err(|error| format!("failed to create model temp file: {error}"))?;
 
     let mut buffer = [0_u8; 8192];
-    let mut total_bytes = 0_u64;
+    let mut total_downloaded = 0_u64;
     let mut prefix = Vec::with_capacity(512);
+    let model_name = format_expected_model_name(dest_path);
+    on_progress(0, total_bytes);
 
     loop {
         let read_bytes = response
@@ -113,21 +172,21 @@ pub fn download_to_file(url: &str, dest_path: &Path) -> Result<(), String> {
 
         file.write_all(&buffer[..read_bytes])
             .map_err(|error| format!("failed to write whisper model chunk: {error}"))?;
-        total_bytes += read_bytes as u64;
+        total_downloaded += read_bytes as u64;
+        on_progress(total_downloaded, total_bytes);
     }
 
     if looks_like_html(&prefix) {
         let _ = std::fs::remove_file(&temp_path);
-        return Err(
-            "Downloaded data looks like an HTML/JSON error page, not ggml-small.bin. Verify HF_TOKEN."
-                .to_string(),
-        );
+        return Err(format!(
+            "Downloaded data looks like an HTML/JSON error page, not {model_name}. Verify HF_TOKEN."
+        ));
     }
 
-    if total_bytes < MIN_MODEL_BYTES {
+    if total_downloaded < MIN_MODEL_BYTES {
         let _ = std::fs::remove_file(&temp_path);
         return Err(format!(
-            "downloaded file is only {total_bytes} bytes; expected at least {MIN_MODEL_BYTES} bytes for ggml-small.bin"
+            "downloaded file is only {total_downloaded} bytes; expected at least {MIN_MODEL_BYTES} bytes for {model_name}"
         ));
     }
 

@@ -1,4 +1,5 @@
 use reqwest::blocking::Client;
+use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -28,6 +29,16 @@ struct ChatCompletionsResponse {
     choices: Vec<ChatChoice>,
 }
 
+#[derive(Deserialize)]
+struct OpenAiErrorEnvelope {
+    error: Option<OpenAiErrorBody>,
+}
+
+#[derive(Deserialize)]
+struct OpenAiErrorBody {
+    message: Option<String>,
+}
+
 pub fn summarize_transcript(
     api_key: &str,
     settings: &AppSettings,
@@ -51,11 +62,10 @@ pub fn summarize_transcript(
         .send()
         .map_err(|error| format!("failed to call OpenAI Chat Completions API: {error}"))?;
 
-    if !response.status().is_success() {
-        return Err(format!(
-            "OpenAI Chat Completions API returned non-success status {}",
-            response.status()
-        ));
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().unwrap_or_default();
+        return Err(format_openai_error(status, &body));
     }
 
     let response_body = response
@@ -78,6 +88,34 @@ pub fn summarize_transcript(
             .map(|duration| duration.as_millis() as i64)
             .unwrap_or_default(),
     })
+}
+
+fn format_openai_error(status: StatusCode, body: &str) -> String {
+    let api_message = serde_json::from_str::<OpenAiErrorEnvelope>(body)
+        .ok()
+        .and_then(|payload| payload.error)
+        .and_then(|error| error.message)
+        .map(|message| message.trim().to_string())
+        .filter(|message| !message.is_empty());
+
+    match status {
+        StatusCode::TOO_MANY_REQUESTS => {
+            let suffix = api_message
+                .map(|message| format!(" {message}"))
+                .unwrap_or_default();
+            format!(
+                "OpenAI rate limit reached (429). Check your API usage/billing and try again in a moment.{suffix}"
+            )
+        }
+        _ => {
+            let suffix = api_message
+                .map(|message| format!(": {message}"))
+                .unwrap_or_default();
+            format!(
+                "OpenAI Chat Completions API returned non-success status {status}{suffix}"
+            )
+        }
+    }
 }
 
 fn build_prompt(session_title: &str, segments: &[TranscriptSegment]) -> String {

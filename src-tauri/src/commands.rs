@@ -4,8 +4,8 @@ use tauri::State;
 
 use crate::state::{
     app::{
-        AppState, AppStateSnapshot, CreateSessionInput, FinalizeSessionInput, ModelStatusSnapshot,
-        SessionDetailSnapshot, UpdateSettingsInput,
+        AppState, AppStateSnapshot, CreateSessionInput, FinalizeSessionInput,
+        LiveTranscriptSnapshot, ModelStatusSnapshot, SessionDetailSnapshot, UpdateSettingsInput,
     },
     capture::{CaptureSourceKind, CaptureStateSnapshot},
 };
@@ -44,13 +44,22 @@ pub fn get_model_status(state: State<'_, Mutex<AppState>>) -> Result<ModelStatus
 #[tauri::command]
 pub fn create_session(
     input: CreateSessionInput,
+    app: tauri::AppHandle,
     state: State<'_, Mutex<AppState>>,
 ) -> Result<AppStateSnapshot, String> {
     let mut app_state = state
         .lock()
         .map_err(|_| "state lock poisoned".to_string())?;
-    app_state.create_session(input)?;
+    app_state.create_session(input, Some(app))?;
     Ok(app_state.snapshot())
+}
+
+#[tauri::command]
+pub fn get_live_transcript(state: State<'_, Mutex<AppState>>) -> Result<LiveTranscriptSnapshot, String> {
+    let app_state = state
+        .lock()
+        .map_err(|_| "state lock poisoned".to_string())?;
+    Ok(app_state.live_transcript_snapshot())
 }
 
 #[tauri::command]
@@ -157,14 +166,27 @@ pub fn save_openai_api_key(
 }
 
 #[tauri::command]
-pub fn download_default_model(
+pub fn select_whisper_model(
+    model_id: String,
+    state: State<'_, Mutex<AppState>>,
+) -> Result<AppStateSnapshot, String> {
+    let mut app_state = state
+        .lock()
+        .map_err(|_| "state lock poisoned".to_string())?;
+    app_state.select_whisper_model(model_id)?;
+    Ok(app_state.snapshot())
+}
+
+#[tauri::command]
+pub fn download_whisper_model(
+    model_id: String,
     app: tauri::AppHandle,
     state: State<'_, Mutex<AppState>>,
 ) -> Result<(), String> {
     let mut app_state = state
         .lock()
         .map_err(|_| "state lock poisoned".to_string())?;
-    app_state.start_download_default_model(Some(app))
+    app_state.start_download_whisper_model(model_id, Some(app))
 }
 
 #[tauri::command]

@@ -31,10 +31,12 @@ export type CaptureDeviceState =
   | "error";
 
 export type RecapProvider = "open_ai";
+export type WhisperModelId = "small" | "medium";
 
 export interface AppSettings {
   recapProvider: RecapProvider;
   openaiModel: string;
+  whisperModel: WhisperModelId;
   refineAfterMeeting: boolean;
   saveRawAudio: boolean;
   dataDirectory: string;
@@ -84,9 +86,25 @@ export interface AppStateSnapshot {
 }
 
 export interface ModelStatusSnapshot {
-  defaultModelPath: string;
-  defaultModelExists: boolean;
+  selectedModelId: WhisperModelId;
+  selectedModelLabel: string;
+  selectedModelPath: string;
+  selectedModelExists: boolean;
   isDownloading: boolean;
+  downloadModelId: WhisperModelId | null;
+  downloadProgressPercent: number | null;
+  downloadDownloadedBytes: number | null;
+  downloadTotalBytes: number | null;
+  models: WhisperModelOptionSnapshot[];
+}
+
+export interface WhisperModelOptionSnapshot {
+  id: WhisperModelId;
+  label: string;
+  fileName: string;
+  path: string;
+  approxSizeBytes: number;
+  isDownloaded: boolean;
 }
 
 export interface TranscriptSegment {
@@ -101,6 +119,13 @@ export interface TranscriptSegment {
 export interface SessionDetailSnapshot {
   segments: TranscriptSegment[];
   recapMarkdown: string | null;
+}
+
+export interface LiveTranscriptSnapshot {
+  sessionId: string | null;
+  segments: TranscriptSegment[];
+  isActive: boolean;
+  modelReady: boolean;
 }
 
 export interface CreateSessionInput {

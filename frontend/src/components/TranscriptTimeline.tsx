@@ -6,9 +6,14 @@ import { formatTimestamp, isMicSource } from "@/lib/format";
 interface TranscriptTimelineProps {
   segments: TranscriptSegment[];
   isProcessing: boolean;
+  emptyMessage?: string;
 }
 
-export function TranscriptTimeline({ segments, isProcessing }: TranscriptTimelineProps) {
+export function TranscriptTimeline({
+  segments,
+  isProcessing,
+  emptyMessage = "Transcript segments will appear here after finalization.",
+}: TranscriptTimelineProps) {
   if (isProcessing) {
     return (
       <div className="flex h-48 items-center justify-center rounded-2xl border border-dashed border-border bg-muted/40">
@@ -22,9 +27,7 @@ export function TranscriptTimeline({ segments, isProcessing }: TranscriptTimelin
   if (segments.length === 0) {
     return (
       <div className="flex h-48 items-center justify-center rounded-2xl border border-dashed border-border bg-muted/40">
-        <p className="text-sm text-muted-foreground">
-          Transcript segments will appear here after finalization.
-        </p>
+        <p className="text-sm text-muted-foreground">{emptyMessage}</p>
       </div>
     );
   }

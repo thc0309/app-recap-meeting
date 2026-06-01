@@ -2,6 +2,8 @@ use std::{fs, process::Command};
 
 use serde::{Deserialize, Serialize};
 
+use crate::services::model_download;
+
 use super::paths::AppPaths;
 
 pub const OPENAI_KEYCHAIN_ACCOUNT: &str = "openai_api_key";
@@ -18,9 +20,15 @@ pub enum RecapProvider {
 pub struct AppSettings {
     pub recap_provider: RecapProvider,
     pub openai_model: String,
+    #[serde(default = "default_whisper_model")]
+    pub whisper_model: String,
     pub refine_after_meeting: bool,
     pub save_raw_audio: bool,
     pub data_directory: String,
+}
+
+fn default_whisper_model() -> String {
+    model_download::DEFAULT_WHISPER_MODEL_ID.to_string()
 }
 
 impl AppSettings {
@@ -28,6 +36,7 @@ impl AppSettings {
         Self {
             recap_provider: RecapProvider::OpenAi,
             openai_model: "gpt-4.1-mini".to_string(),
+            whisper_model: default_whisper_model(),
             refine_after_meeting: true,
             save_raw_audio: true,
             data_directory: paths.root_dir.display().to_string(),

@@ -1,7 +1,8 @@
 import { LoaderCircle, Mic, Square } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { StatusBadge } from "@/components/StatusBadge";
+import { formatElapsedMs, useSessionDuration } from "@/hooks/useSessionDuration";
 import type { MeetingSession } from "@/types";
 
 interface RecordingHubProps {
@@ -32,6 +33,12 @@ export function RecordingHub({
   const [title, setTitle] = useState("");
   const [saveRawAudio, setSaveRawAudio] = useState(defaultSaveRawAudio);
   const [refineRequested, setRefineRequested] = useState(defaultRefineAfterMeeting);
+  const elapsedMs = useSessionDuration(activeSession);
+
+  useEffect(() => {
+    setSaveRawAudio(defaultSaveRawAudio);
+    setRefineRequested(defaultRefineAfterMeeting);
+  }, [defaultSaveRawAudio, defaultRefineAfterMeeting]);
 
   const refineDisabled = !saveRawAudio || hasActiveSession || isProcessing;
 
@@ -39,23 +46,25 @@ export function RecordingHub({
     <section className="glass-panel rounded-2xl p-5">
       <div className="mb-4 flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold">Recording hub</h2>
-          <p className="text-sm text-muted-foreground">
-            Create a session, capture mic + system audio, then finalize when the meeting ends.
-          </p>
+          <h2 className="text-base font-semibold">Recording</h2>
+          {activeSession && elapsedMs !== null && (
+            <p className="mt-0.5 text-sm font-medium tabular-nums text-emerald-600 dark:text-emerald-300">
+              {formatElapsedMs(elapsedMs)}
+            </p>
+          )}
         </div>
         {activeSession && <StatusBadge status={activeSession.status} />}
       </div>
 
       {isProcessing && (
-        <div className="mb-4 flex items-center gap-2 rounded-xl bg-sky-500/10 px-4 py-3 text-sm text-sky-700 dark:text-sky-300">
-          <LoaderCircle className="size-4 animate-spin" />
-          Processing transcript. Controls are temporarily disabled.
+        <div className="mb-4 flex items-center gap-2 rounded-lg bg-sky-500/10 px-3 py-2 text-xs text-sky-700 dark:text-sky-300">
+          <LoaderCircle className="size-3.5 animate-spin" />
+          Processing…
         </div>
       )}
 
       <form
-        className="grid gap-3 md:grid-cols-2"
+        className="space-y-3"
         onSubmit={(event) => {
           event.preventDefault();
           void onCreateSession({
@@ -65,69 +74,70 @@ export function RecordingHub({
           }).then(() => setTitle(""));
         }}
       >
-        <label className="grid gap-1 text-sm md:col-span-2">
-          <span className="text-muted-foreground">Session title</span>
+        <label className="grid gap-1 text-sm">
+          <span className="text-muted-foreground">Title</span>
           <input
             value={title}
             onChange={(event) => setTitle(event.target.value)}
             disabled={hasActiveSession || isProcessing}
             placeholder="Design review"
-            className="rounded-xl border border-border bg-background px-3 py-2 outline-none focus:ring-2 focus:ring-accent/40"
+            className="rounded-lg border border-border bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-accent/40"
           />
         </label>
 
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={saveRawAudio}
-            disabled={hasActiveSession || isProcessing}
-            onChange={(event) => {
-              setSaveRawAudio(event.target.checked);
-              if (!event.target.checked) {
-                setRefineRequested(false);
-              }
-            }}
-          />
-          Save raw audio
-        </label>
-
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={refineRequested}
-            disabled={refineDisabled}
-            onChange={(event) => setRefineRequested(event.target.checked)}
-          />
-          Request refine pass
-        </label>
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+          <label className="flex items-center gap-1.5">
+            <input
+              type="checkbox"
+              checked={saveRawAudio}
+              disabled={hasActiveSession || isProcessing}
+              onChange={(event) => {
+                setSaveRawAudio(event.target.checked);
+                if (!event.target.checked) {
+                  setRefineRequested(false);
+                }
+              }}
+            />
+            Save raw audio
+          </label>
+          <label className="flex items-center gap-1.5">
+            <input
+              type="checkbox"
+              checked={refineRequested}
+              disabled={refineDisabled}
+              onChange={(event) => setRefineRequested(event.target.checked)}
+            />
+            Refine pass
+          </label>
+        </div>
 
         <button
           type="submit"
           disabled={hasActiveSession || isProcessing}
-          className="inline-flex items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-medium text-accent-foreground disabled:opacity-50 md:col-span-2"
+          className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-accent-foreground disabled:opacity-50"
         >
           <Mic className="size-4" />
-          Create session
+          New session
         </button>
       </form>
 
-      <div className="mt-4 flex flex-wrap gap-2">
+      <div className="mt-4 grid grid-cols-2 gap-2">
         <button
           type="button"
           disabled={!activeSession || isProcessing || activeSession.status !== "recording"}
           onClick={() => void onRecover()}
-          className="rounded-xl border border-border px-4 py-2 text-sm hover:bg-muted disabled:opacity-50"
+          className="rounded-lg border border-border px-2 py-1.5 text-xs hover:bg-muted disabled:opacity-50"
         >
-          Recover active session
+          Recover
         </button>
         <button
           type="button"
           disabled={!activeSession || isProcessing}
           onClick={() => void onFinalize(refineRequested && defaultRefineAfterMeeting)}
-          className="inline-flex items-center gap-2 rounded-xl border border-border px-4 py-2 text-sm hover:bg-muted disabled:opacity-50"
+          className="inline-flex items-center justify-center gap-1 rounded-lg border border-border px-2 py-1.5 text-xs hover:bg-muted disabled:opacity-50"
         >
-          <Square className="size-4" />
-          Finalize session
+          <Square className="size-3.5" />
+          Finalize
         </button>
       </div>
     </section>

@@ -22,6 +22,7 @@ pub fn run() {
             commands::get_capture_overview,
             commands::get_model_status,
             commands::create_session,
+            commands::get_live_transcript,
             commands::recover_active_session,
             commands::finalize_session,
             commands::delete_session,
@@ -30,8 +31,9 @@ pub fn run() {
             commands::simulate_device_loss,
             commands::recover_capture_device,
             commands::update_settings,
+            commands::select_whisper_model,
             commands::save_openai_api_key,
-            commands::download_default_model,
+            commands::download_whisper_model,
             commands::generate_recap,
             commands::export_session_markdown,
             commands::get_session_detail

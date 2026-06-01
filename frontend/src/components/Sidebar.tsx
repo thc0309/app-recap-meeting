@@ -1,17 +1,18 @@
-import { ChevronLeft, ChevronRight, History, Trash2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, History, Sparkles, Trash2 } from "lucide-react";
 
-import { StatusBadge } from "@/components/StatusBadge";
-import type { MeetingSession } from "@/types";
-import { formatDuration } from "@/lib/format";
+import { SessionListItem } from "@/components/SessionListItem";
+import type { MeetingSession, SessionStatus } from "@/types";
 
 interface SidebarProps {
   collapsed: boolean;
   sessions: MeetingSession[];
   selectedSessionId: string | null;
+  selectedSessionStatus: SessionStatus | null;
   activeSessionId: string | null;
   disabled: boolean;
   onToggleCollapsed: () => void;
   onSelectSession: (sessionId: string) => void;
+  onGenerateRecap: (sessionId: string) => void;
   onDeleteSession: (sessionId: string) => void;
   onClearHistory: () => void;
 }
@@ -20,13 +21,18 @@ export function Sidebar({
   collapsed,
   sessions,
   selectedSessionId,
+  selectedSessionStatus,
   activeSessionId,
   disabled,
   onToggleCollapsed,
   onSelectSession,
+  onGenerateRecap,
   onDeleteSession,
   onClearHistory,
 }: SidebarProps) {
+  const canGenerateRecap =
+    selectedSessionStatus === "done" || selectedSessionStatus === "recap_done";
+
   return (
     <aside
       className={`glass-panel flex h-full flex-col rounded-2xl transition-all ${
@@ -55,49 +61,29 @@ export function Sidebar({
           <p className="text-sm text-muted-foreground">No meetings yet.</p>
         )}
 
-        {sessions.map((session) => {
-          const isSelected = session.id === selectedSessionId;
-          const isActive = session.id === activeSessionId;
-
-          return (
-            <button
-              key={session.id}
-              type="button"
-              onClick={() => onSelectSession(session.id)}
-              title={session.title}
-              className={`w-full rounded-xl border px-3 py-3 text-left transition ${
-                isSelected
-                  ? "border-accent bg-accent/10"
-                  : "border-border hover:bg-muted/70"
-              } ${collapsed ? "px-2 py-2 text-center" : ""}`}
-            >
-              {collapsed ? (
-                <span className="text-xs font-semibold">{session.title.slice(0, 1)}</span>
-              ) : (
-                <>
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="line-clamp-1 font-medium">{session.title}</p>
-                    {isActive && (
-                      <span className="rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-semibold text-accent uppercase">
-                        Live
-                      </span>
-                    )}
-                  </div>
-                  <div className="mt-2 flex items-center justify-between gap-2">
-                    <StatusBadge status={session.status} />
-                    <span className="text-xs text-muted-foreground">
-                      {formatDuration(session)}
-                    </span>
-                  </div>
-                </>
-              )}
-            </button>
-          );
-        })}
+        {sessions.map((session) => (
+          <SessionListItem
+            key={session.id}
+            session={session}
+            collapsed={collapsed}
+            isSelected={session.id === selectedSessionId}
+            isActive={session.id === activeSessionId}
+            onSelect={() => onSelectSession(session.id)}
+          />
+        ))}
       </div>
 
       {!collapsed && (
         <div className="mt-3 flex flex-col gap-2 border-t border-border pt-3">
+          <button
+            type="button"
+            disabled={disabled || !selectedSessionId || !canGenerateRecap}
+            onClick={() => selectedSessionId && onGenerateRecap(selectedSessionId)}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-border px-3 py-2 text-sm hover:bg-muted disabled:opacity-50"
+          >
+            <Sparkles className="size-4" />
+            Generate recap
+          </button>
           <button
             type="button"
             disabled={disabled || !selectedSessionId}

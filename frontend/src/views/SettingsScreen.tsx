@@ -16,7 +16,6 @@ interface SettingsScreenProps {
     saveRawAudio: boolean;
   }) => Promise<unknown>;
   onSaveApiKey: (apiKey: string) => Promise<unknown>;
-  onGenerateRecap: (sessionId: string) => Promise<unknown>;
   onExportMarkdown: (sessionId: string) => Promise<unknown>;
 }
 
@@ -30,7 +29,6 @@ export function SettingsScreen({
   onRecoverDevice,
   onSaveSettings,
   onSaveApiKey,
-  onGenerateRecap,
   onExportMarkdown,
 }: SettingsScreenProps) {
   return (
@@ -56,7 +54,6 @@ export function SettingsScreen({
         disabled={disabled}
         onSaveSettings={onSaveSettings}
         onSaveApiKey={onSaveApiKey}
-        onGenerateRecap={onGenerateRecap}
         onExportMarkdown={onExportMarkdown}
       />
     </div>

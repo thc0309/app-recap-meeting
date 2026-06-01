@@ -1,4 +1,4 @@
-import { FileDown, Sparkles } from "lucide-react";
+import { FileDown } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import type { AppSettings } from "@/types";
@@ -13,7 +13,6 @@ interface SettingsPanelProps {
     saveRawAudio: boolean;
   }) => Promise<unknown>;
   onSaveApiKey: (apiKey: string) => Promise<unknown>;
-  onGenerateRecap: (sessionId: string) => Promise<unknown>;
   onExportMarkdown: (sessionId: string) => Promise<unknown>;
 }
 
@@ -23,7 +22,6 @@ export function SettingsPanel({
   disabled,
   onSaveSettings,
   onSaveApiKey,
-  onGenerateRecap,
   onExportMarkdown,
 }: SettingsPanelProps) {
   const [openaiModel, setOpenaiModel] = useState("gpt-4.1-mini");
@@ -117,15 +115,6 @@ export function SettingsPanel({
       </form>
 
       <div className="mt-5 flex flex-wrap gap-2 border-t border-border pt-4">
-        <button
-          type="button"
-          disabled={disabled || !selectedSessionId}
-          onClick={() => selectedSessionId && void onGenerateRecap(selectedSessionId)}
-          className="inline-flex items-center gap-2 rounded-xl border border-border px-4 py-2 text-sm hover:bg-muted disabled:opacity-50"
-        >
-          <Sparkles className="size-4" />
-          Generate recap
-        </button>
         <button
           type="button"
           disabled={disabled || !selectedSessionId}

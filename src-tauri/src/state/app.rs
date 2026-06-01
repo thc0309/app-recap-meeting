@@ -3,11 +3,19 @@ use std::env;
 #[cfg(test)]
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use std::{
+    path::PathBuf,
+    sync::{
+        atomic::{AtomicBool, Ordering::Relaxed},
+        Arc,
+    },
+};
+
 use serde::{Deserialize, Serialize};
 
 use crate::{
     audio::{helper, helper::NativeCaptureProcess, platform},
-    services::{model_download, openai, transcription},
+    services::{live_transcription, model_download, openai, transcription},
     state::{
         capture::{CaptureManager, CaptureSourceKind, CaptureStateSnapshot},
         session::{
@@ -31,7 +39,17 @@ pub struct AppState {
     pub paths: AppPaths,
     pub settings: AppSettings,
     pub sessions: Vec<MeetingSession>,
-    pub is_downloading_model: bool,
+    model_download: Option<ModelDownloadState>,
+    pub live_transcription: Option<live_transcription::LiveTranscriptionSession>,
+    live_poll_cancel: Option<Arc<AtomicBool>>,
+}
+
+#[derive(Clone, Debug)]
+struct ModelDownloadState {
+    model_id: String,
+    progress_percent: Option<f64>,
+    downloaded_bytes: u64,
+    total_bytes: Option<u64>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -70,9 +88,27 @@ pub struct UpdateSettingsInput {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelStatusSnapshot {
-    pub default_model_path: String,
-    pub default_model_exists: bool,
+    pub selected_model_id: String,
+    pub selected_model_label: String,
+    pub selected_model_path: String,
+    pub selected_model_exists: bool,
     pub is_downloading: bool,
+    pub download_model_id: Option<String>,
+    pub download_progress_percent: Option<f64>,
+    pub download_downloaded_bytes: Option<u64>,
+    pub download_total_bytes: Option<u64>,
+    pub models: Vec<WhisperModelOptionSnapshot>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WhisperModelOptionSnapshot {
+    pub id: String,
+    pub label: String,
+    pub file_name: String,
+    pub path: String,
+    pub approx_size_bytes: u64,
+    pub is_downloaded: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -82,13 +118,61 @@ pub struct SessionDetailSnapshot {
     pub recap_markdown: Option<String>,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveTranscriptSnapshot {
+    pub session_id: Option<String>,
+    pub segments: Vec<TranscriptSegment>,
+    pub is_active: bool,
+    pub model_ready: bool,
+}
+
 #[derive(Deserialize)]
 struct TranscriptFilePayload {
     #[serde(default)]
     segments: Vec<TranscriptSegment>,
 }
 
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OperationErrorEvent {
+    message: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ModelDownloadProgressEvent {
+    model_id: String,
+    progress_percent: Option<f64>,
+    downloaded_bytes: u64,
+    total_bytes: Option<u64>,
+}
+
 impl AppState {
+    fn emit_operation_error(app: &tauri::AppHandle, message: String) {
+        use tauri::Emitter;
+        let _ = app.emit("operation-error", OperationErrorEvent { message });
+    }
+
+    fn emit_model_download_progress(
+        app: &tauri::AppHandle,
+        model_id: String,
+        progress_percent: Option<f64>,
+        downloaded_bytes: u64,
+        total_bytes: Option<u64>,
+    ) {
+        use tauri::Emitter;
+        let _ = app.emit(
+            "model-download-progress",
+            ModelDownloadProgressEvent {
+                model_id,
+                progress_percent,
+                downloaded_bytes,
+                total_bytes,
+            },
+        );
+    }
+
     pub fn bootstrap() -> Result<Self, String> {
         Self::from_paths(AppPaths::detect()?)
     }
@@ -96,7 +180,11 @@ impl AppState {
     fn from_paths(paths: AppPaths) -> Result<Self, String> {
         paths.ensure()?;
         db::initialize(&paths.db_path)?;
-        let settings = settings::load_or_create(&paths)?;
+        let mut settings = settings::load_or_create(&paths)?;
+        if model_download::find_model(&settings.whisper_model).is_none() {
+            settings.whisper_model = model_download::DEFAULT_WHISPER_MODEL_ID.to_string();
+            settings::save(&paths, &settings)?;
+        }
         let sessions = db::load_sessions(&paths.db_path)?;
         let active_session_id = sessions
             .iter()
@@ -117,8 +205,95 @@ impl AppState {
             paths,
             settings,
             sessions,
-            is_downloading_model: false,
+            model_download: None,
+            live_transcription: None,
+            live_poll_cancel: None,
         })
+    }
+
+    pub fn live_transcript_snapshot(&self) -> LiveTranscriptSnapshot {
+        let model_ready = self.default_model_path().exists();
+        match &self.live_transcription {
+            Some(live) => LiveTranscriptSnapshot {
+                session_id: Some(live.session_id.clone()),
+                segments: live.segments.clone(),
+                is_active: true,
+                model_ready,
+            },
+            None => LiveTranscriptSnapshot {
+                session_id: None,
+                segments: Vec::new(),
+                is_active: false,
+                model_ready,
+            },
+        }
+    }
+
+    fn stop_live_transcription(&mut self) {
+        if let Some(cancel) = &self.live_poll_cancel {
+            cancel.store(true, Relaxed);
+        }
+        self.live_poll_cancel = None;
+        self.live_transcription = None;
+    }
+
+    fn start_live_transcription(
+        &mut self,
+        session_id: String,
+        mic_audio_path: PathBuf,
+        system_audio_path: PathBuf,
+        app_handle: tauri::AppHandle,
+    ) {
+        self.stop_live_transcription();
+
+        self.live_transcription = Some(live_transcription::LiveTranscriptionSession::new(
+            session_id,
+            mic_audio_path,
+            system_audio_path,
+        ));
+
+        let cancel = Arc::new(AtomicBool::new(false));
+        self.live_poll_cancel = Some(cancel.clone());
+        let poll_seconds = live_transcription::poll_interval_seconds();
+
+        tauri::async_runtime::spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(poll_seconds)).await;
+                if cancel.load(Relaxed) {
+                    break;
+                }
+
+                let app_for_blocking = app_handle.clone();
+                let snapshot = tauri::async_runtime::spawn_blocking(
+                    move || -> Result<LiveTranscriptSnapshot, String> {
+                        use tauri::Manager;
+                        let state = app_for_blocking.state::<std::sync::Mutex<AppState>>();
+                        let mut app_state = state
+                            .lock()
+                            .map_err(|_| "state lock poisoned".to_string())?;
+                        let model_path = app_state.default_model_path();
+
+                        if let Some(live) = app_state.live_transcription.as_mut() {
+                            if let Err(error) = live_transcription::poll_live_session(live, &model_path) {
+                                println!("Live transcription poll failed: {error}");
+                            }
+                        }
+
+                        Ok(app_state.live_transcript_snapshot())
+                    },
+                )
+                .await;
+
+                match snapshot {
+                    Ok(Ok(snapshot)) => {
+                        use tauri::Emitter;
+                        let _ = app_handle.emit("live-transcript-updated", snapshot);
+                    }
+                    Ok(Err(error)) => println!("Live transcription lock failed: {error}"),
+                    Err(error) => println!("Live transcription task failed: {error}"),
+                }
+            }
+        });
     }
 
     pub fn snapshot(&self) -> AppStateSnapshot {
@@ -135,15 +310,52 @@ impl AppState {
     }
 
     pub fn model_status_snapshot(&self) -> ModelStatusSnapshot {
-        let model_path = self.default_model_path();
+        let selected_model = self.selected_model_spec();
+        let model_path = self.model_path_for_spec(selected_model);
         ModelStatusSnapshot {
-            default_model_path: model_path.display().to_string(),
-            default_model_exists: model_path.exists(),
-            is_downloading: self.is_downloading_model,
+            selected_model_id: selected_model.id.to_string(),
+            selected_model_label: selected_model.label.to_string(),
+            selected_model_path: model_path.display().to_string(),
+            selected_model_exists: model_path.exists(),
+            is_downloading: self.model_download.is_some(),
+            download_model_id: self
+                .model_download
+                .as_ref()
+                .map(|download| download.model_id.clone()),
+            download_progress_percent: self
+                .model_download
+                .as_ref()
+                .and_then(|download| download.progress_percent),
+            download_downloaded_bytes: self
+                .model_download
+                .as_ref()
+                .map(|download| download.downloaded_bytes),
+            download_total_bytes: self
+                .model_download
+                .as_ref()
+                .and_then(|download| download.total_bytes),
+            models: model_download::available_models()
+                .iter()
+                .map(|model| {
+                    let path = self.model_path_for_spec(model);
+                    WhisperModelOptionSnapshot {
+                        id: model.id.to_string(),
+                        label: model.label.to_string(),
+                        file_name: model.file_name.to_string(),
+                        path: path.display().to_string(),
+                        approx_size_bytes: model.approx_size_bytes,
+                        is_downloaded: path.exists(),
+                    }
+                })
+                .collect(),
         }
     }
 
-    pub fn create_session(&mut self, input: CreateSessionInput) -> Result<(), String> {
+    pub fn create_session(
+        &mut self,
+        input: CreateSessionInput,
+        app_handle: Option<tauri::AppHandle>,
+    ) -> Result<(), String> {
         if self.active_session_id.is_some() {
             return Err("an active session already exists".to_string());
         }
@@ -185,9 +397,21 @@ impl AppState {
         }
 
         self.capture.bind_to_session(&session_id);
-        self.active_session_id = Some(session_id);
+        self.active_session_id = Some(session_id.clone());
         db::upsert_session(&self.paths.db_path, &session)?;
         self.sessions.push(session);
+
+        if self.transcription_enabled {
+            if let Some(app) = app_handle {
+                self.start_live_transcription(
+                    session_id,
+                    mic_audio_path,
+                    system_audio_path,
+                    app,
+                );
+            }
+        }
+
         Ok(())
     }
 
@@ -218,6 +442,8 @@ impl AppState {
         input: FinalizeSessionInput,
         app_handle: Option<tauri::AppHandle>,
     ) -> Result<(), String> {
+        self.stop_live_transcription();
+
         let session_index = self
             .sessions
             .iter()
@@ -285,16 +511,17 @@ impl AppState {
             tauri::async_runtime::spawn(async move {
                 let session_id_for_thread = session_id_clone.clone();
                 let process_result = tauri::async_runtime::spawn_blocking(
-                    move || -> Result<SessionStatus, String> {
+                    move || -> Result<(SessionStatus, Option<String>), String> {
                         let segments = if transcription_enabled {
                             if !model_path.exists() {
                                 return Err(format!(
-                                    "missing whisper model at {}. download ggml-small.bin first",
+                                    "missing whisper model at {}. download the selected Whisper model first",
                                     model_path.display()
                                 ));
                             }
 
                             match transcription::transcribe_session(
+                                &session_id_for_thread,
                                 &model_path,
                                 &mic_audio_path,
                                 &system_audio_path,
@@ -334,37 +561,43 @@ impl AppState {
 
                         // Optional recap
                         let mut status = SessionStatus::Done;
+                        let mut operation_error = None;
                         if generate_recap {
                             let api_key = settings::load_openai_api_key()?.ok_or_else(|| {
                                 "no OpenAI API key found in macOS Keychain".to_string()
                             })?;
                             let segments = db::load_segments(&db_path, &session_id_for_thread)?;
-                            let recap = openai::summarize_transcript(
+                            match openai::summarize_transcript(
                                 &api_key,
                                 &settings,
                                 &session_title,
                                 &segments,
-                            )?;
-
-                            paths.write_string(&recap_path, &recap.content)?;
-                            db::upsert_recap(&db_path, &session_id_for_thread, &recap)?;
-                            status = SessionStatus::RecapDone;
+                            ) {
+                                Ok(recap) => {
+                                    paths.write_string(&recap_path, &recap.content)?;
+                                    db::upsert_recap(&db_path, &session_id_for_thread, &recap)?;
+                                    status = SessionStatus::RecapDone;
+                                }
+                                Err(error) => {
+                                    operation_error = Some(error);
+                                }
+                            }
                         }
 
-                        Ok(status)
+                        Ok((status, operation_error))
                     },
                 )
                 .await;
 
-                let final_status = match process_result {
-                    Ok(Ok(status)) => status,
+                let (final_status, operation_error) = match process_result {
+                    Ok(Ok((status, operation_error))) => (status, operation_error),
                     Ok(Err(err)) => {
                         println!("Transcription/Recap background error: {err}");
-                        SessionStatus::Error
+                        (SessionStatus::Error, Some(err))
                     }
                     Err(err) => {
                         println!("Background task panicked: {err}");
-                        SessionStatus::Error
+                        (SessionStatus::Error, Some(format!("Background task panicked: {err}")))
                     }
                 };
 
@@ -379,10 +612,12 @@ impl AppState {
                                 .position(|s| s.id == session_id_clone)
                             {
                                 app_state.sessions[pos].status = final_status.clone();
-                                app_state.sessions[pos].transcript_mode =
-                                    TranscriptMode::FinalSpeakerLabels;
-                                app_state.sessions[pos].remote_speaker_label_state =
-                                    RemoteSpeakerLabelState::FinalLabelsApplied;
+                                if final_status != SessionStatus::Error {
+                                    app_state.sessions[pos].transcript_mode =
+                                        TranscriptMode::FinalSpeakerLabels;
+                                    app_state.sessions[pos].remote_speaker_label_state =
+                                        RemoteSpeakerLabelState::FinalLabelsApplied;
+                                }
                                 let _ = db::upsert_session(
                                     &app_state.paths.db_path,
                                     &app_state.sessions[pos],
@@ -395,18 +630,26 @@ impl AppState {
                 // Emit event
                 use tauri::Emitter;
                 let _ = app_clone.emit("state-changed", ());
+                if let Some(message) = operation_error {
+                    Self::emit_operation_error(&app_clone, message);
+                }
             });
         } else {
             // Synchronous Path (Tests)
             let segments = if transcription_enabled {
                 if !model_path.exists() {
                     return Err(format!(
-                        "missing whisper model at {}. download ggml-small.bin first",
+                        "missing whisper model at {}. download the selected Whisper model first",
                         model_path.display()
                     ));
                 }
 
-                transcription::transcribe_session(&model_path, &mic_audio_path, &system_audio_path)?
+                transcription::transcribe_session(
+                    &session_id,
+                    &model_path,
+                    &mic_audio_path,
+                    &system_audio_path,
+                )?
             } else {
                 Vec::new()
             };
@@ -537,31 +780,95 @@ impl AppState {
         settings::save(&self.paths, &self.settings)
     }
 
+    pub fn select_whisper_model(&mut self, model_id: String) -> Result<(), String> {
+        let model = model_download::find_model(&model_id)
+            .ok_or_else(|| format!("unsupported Whisper model: {model_id}"))?;
+        self.settings.whisper_model = model.id.to_string();
+        settings::save(&self.paths, &self.settings)
+    }
+
     pub fn save_openai_api_key(&self, api_key: &str) -> Result<(), String> {
         settings::save_openai_api_key(api_key)
     }
 
-    pub fn start_download_default_model(
+    pub fn start_download_whisper_model(
         &mut self,
+        model_id: String,
         app_handle: Option<tauri::AppHandle>,
     ) -> Result<(), String> {
-        if self.is_downloading_model {
+        if self.model_download.is_some() {
             return Err("model download is already in progress".to_string());
         }
 
-        let model_path = self.default_model_path();
+        let model = model_download::find_model(&model_id)
+            .ok_or_else(|| format!("unsupported Whisper model: {model_id}"))?;
+        let model_path = self.model_path_for_spec(model);
         if model_path.exists() {
             return Err("whisper model already exists".to_string());
         }
 
         if let Some(app_clone) = app_handle {
-            self.is_downloading_model = true;
+            self.model_download = Some(ModelDownloadState {
+                model_id: model.id.to_string(),
+                progress_percent: Some(0.0),
+                downloaded_bytes: 0,
+                total_bytes: Some(model.approx_size_bytes),
+            });
 
             tauri::async_runtime::spawn(async move {
-                let url = model_download::DEFAULT_WHISPER_MODEL_URL.to_string();
+                let model_id_for_download = model.id.to_string();
+                let model_url = model.download_url.to_string();
+                let progress_app = app_clone.clone();
 
                 let download_result = tauri::async_runtime::spawn_blocking(move || {
-                    model_download::download_to_file(&url, &model_path)
+                    let mut last_progress_bucket = None;
+                    model_download::download_to_file_with_progress(
+                        &model_url,
+                        &model_path,
+                        move |downloaded_bytes, total_bytes| {
+                            let progress_percent = total_bytes.map(|total| {
+                                if total == 0 {
+                                    0.0
+                                } else {
+                                    (downloaded_bytes as f64 / total as f64 * 100.0).min(100.0)
+                                }
+                            });
+
+                            let progress_bucket = progress_percent
+                                .map(|progress| progress.floor() as u64)
+                                .unwrap_or(downloaded_bytes / (5 * 1024 * 1024));
+
+                            if Some(progress_bucket) == last_progress_bucket
+                                && downloaded_bytes != 0
+                                && Some(downloaded_bytes) != total_bytes
+                            {
+                                return;
+                            }
+                            last_progress_bucket = Some(progress_bucket);
+
+                            use tauri::Manager;
+                            if let Some(state) =
+                                progress_app.try_state::<std::sync::Mutex<AppState>>()
+                            {
+                                if let Ok(mut app_state) = state.lock() {
+                                    app_state.model_download = Some(ModelDownloadState {
+                                        model_id: model_id_for_download.clone(),
+                                        progress_percent,
+                                        downloaded_bytes,
+                                        total_bytes,
+                                    });
+                                }
+                            }
+
+                            Self::emit_model_download_progress(
+                                &progress_app,
+                                model_id_for_download.clone(),
+                                progress_percent,
+                                downloaded_bytes,
+                                total_bytes,
+                            );
+                        },
+                    )
                 })
                 .await;
 
@@ -576,7 +883,7 @@ impl AppState {
                     use tauri::Manager;
                     if let Some(state) = app_clone.try_state::<std::sync::Mutex<AppState>>() {
                         if let Ok(mut app_state) = state.lock() {
-                            app_state.is_downloading_model = false;
+                            app_state.model_download = None;
                             if let Err(e) = &result {
                                 println!("Model download failed: {e}");
                             }
@@ -587,12 +894,12 @@ impl AppState {
                 // Emit event to update the frontend
                 use tauri::Emitter;
                 let _ = app_clone.emit("state-changed", ());
+                if let Err(error) = result {
+                    Self::emit_operation_error(&app_clone, error);
+                }
             });
         } else {
-            model_download::download_to_file(
-                model_download::DEFAULT_WHISPER_MODEL_URL,
-                &model_path,
-            )?;
+            model_download::download_to_file(model.download_url, &model_path)?;
         }
 
         Ok(())
@@ -652,15 +959,18 @@ impl AppState {
                     })
                     .await;
 
-                let final_status = match process_result {
-                    Ok(Ok(())) => SessionStatus::RecapDone,
+                let (final_status, operation_error) = match process_result {
+                    Ok(Ok(())) => (SessionStatus::RecapDone, None),
                     Ok(Err(err)) => {
                         println!("Recap generation background error: {err}");
-                        SessionStatus::Error
+                        (SessionStatus::Done, Some(err))
                     }
                     Err(err) => {
                         println!("Background task panicked: {err}");
-                        SessionStatus::Error
+                        (
+                            SessionStatus::Done,
+                            Some(format!("Background task panicked: {err}")),
+                        )
                     }
                 };
 
@@ -687,6 +997,9 @@ impl AppState {
                 // Emit event
                 use tauri::Emitter;
                 let _ = app_clone.emit("state-changed", ());
+                if let Some(message) = operation_error {
+                    Self::emit_operation_error(&app_clone, message);
+                }
             });
         } else {
             // Tests/Synchronous Path
@@ -721,7 +1034,19 @@ impl AppState {
             .find(|session| session.id == session_id)
             .ok_or_else(|| "session not found".to_string())?;
 
-        let mut segments = db::load_segments(&self.paths.db_path, session_id)?;
+        let mut segments = if self
+            .live_transcription
+            .as_ref()
+            .is_some_and(|live| live.session_id == session_id)
+        {
+            self.live_transcription
+                .as_ref()
+                .map(|live| live.segments.clone())
+                .unwrap_or_default()
+        } else {
+            db::load_segments(&self.paths.db_path, session_id)?
+        };
+
         if segments.is_empty() {
             if let Ok(contents) = std::fs::read_to_string(&session.transcript_path) {
                 if let Ok(document) = serde_json::from_str::<TranscriptDocument>(&contents) {
@@ -779,8 +1104,20 @@ impl AppState {
         Ok(export_path.display().to_string())
     }
 
+    fn selected_model_spec(&self) -> &'static model_download::WhisperModelSpec {
+        model_download::find_model(&self.settings.whisper_model)
+            .unwrap_or_else(model_download::default_model)
+    }
+
+    fn model_path_for_spec(
+        &self,
+        model: &model_download::WhisperModelSpec,
+    ) -> std::path::PathBuf {
+        self.paths.models_dir.join(model.file_name)
+    }
+
     fn default_model_path(&self) -> std::path::PathBuf {
-        self.paths.models_dir.join("ggml-small.bin")
+        self.model_path_for_spec(self.selected_model_spec())
     }
 
     #[cfg(test)]
@@ -813,11 +1150,14 @@ mod tests {
     fn refine_is_disabled_without_raw_audio() {
         let mut state = AppState::for_test();
         state
-            .create_session(CreateSessionInput {
-                title: Some("No Raw Audio".to_string()),
-                save_raw_audio: false,
-                refine_requested: true,
-            })
+            .create_session(
+                CreateSessionInput {
+                    title: Some("No Raw Audio".to_string()),
+                    save_raw_audio: false,
+                    refine_requested: true,
+                },
+                None,
+            )
             .expect("session should be created");
 
         let session = state.sessions.first().expect("session should exist");
@@ -829,11 +1169,14 @@ mod tests {
     fn finalize_applies_post_meeting_speaker_labels() {
         let mut state = AppState::for_test();
         state
-            .create_session(CreateSessionInput {
-                title: Some("Finalize".to_string()),
-                save_raw_audio: true,
-                refine_requested: false,
-            })
+            .create_session(
+                CreateSessionInput {
+                    title: Some("Finalize".to_string()),
+                    save_raw_audio: true,
+                    refine_requested: false,
+                },
+                None,
+            )
             .expect("session should be created");
 
         let session_id = state
@@ -864,11 +1207,14 @@ mod tests {
     fn delete_session_removes_files_and_history() {
         let mut state = AppState::for_test();
         state
-            .create_session(CreateSessionInput {
-                title: Some("Delete".to_string()),
-                save_raw_audio: true,
-                refine_requested: false,
-            })
+            .create_session(
+                CreateSessionInput {
+                    title: Some("Delete".to_string()),
+                    save_raw_audio: true,
+                    refine_requested: false,
+                },
+                None,
+            )
             .expect("session should be created");
 
         let session = state
@@ -888,11 +1234,14 @@ mod tests {
     fn finalize_without_raw_audio_deletes_transient_wavs() {
         let mut state = AppState::for_test();
         state
-            .create_session(CreateSessionInput {
-                title: Some("Cleanup".to_string()),
-                save_raw_audio: false,
-                refine_requested: false,
-            })
+            .create_session(
+                CreateSessionInput {
+                    title: Some("Cleanup".to_string()),
+                    save_raw_audio: false,
+                    refine_requested: false,
+                },
+                None,
+            )
             .expect("session should be created");
 
         let session = state

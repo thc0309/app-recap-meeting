@@ -5,9 +5,10 @@ use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextPar
 
 use crate::state::transcript::TranscriptSegment;
 
-const WHISPER_SAMPLE_RATE: u32 = 16_000;
+pub const WHISPER_SAMPLE_RATE: u32 = 16_000;
 
 pub fn transcribe_session(
+    session_id: &str,
     model_path: &Path,
     mic_audio_path: &Path,
     system_audio_path: &Path,
@@ -23,12 +24,14 @@ pub fn transcribe_session(
     let mut segments = Vec::new();
     segments.extend(transcribe_one_source(
         &context,
+        session_id,
         mic_audio_path,
         "mic_local",
         "LOCAL",
     )?);
     segments.extend(transcribe_one_source(
         &context,
+        session_id,
         system_audio_path,
         "system_audio",
         "Speaker 1",
@@ -39,6 +42,7 @@ pub fn transcribe_session(
 
 fn transcribe_one_source(
     context: &WhisperContext,
+    session_id: &str,
     audio_path: &Path,
     source_type: &str,
     speaker_label: &str,
@@ -85,7 +89,7 @@ fn transcribe_one_source(
         }
 
         segments.push(TranscriptSegment {
-            id: format!("segment-{source_type}-{index}"),
+            id: format!("{session_id}-segment-{source_type}-{index}"),
             source_type: source_type.to_string(),
             speaker_label: speaker_label.to_string(),
             start_time_ms: i64::from(segment.start_timestamp()) * 10,
@@ -148,7 +152,7 @@ fn read_wav_as_f32(audio_path: &Path) -> Result<Vec<f32>, String> {
 }
 
 /// Linear interpolation resampling (e.g. 24 kHz mic capture -> 16 kHz for Whisper).
-fn resample_linear(samples: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
+pub fn resample_linear(samples: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
     if from_rate == to_rate {
         return samples.to_vec();
     }

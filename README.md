@@ -30,7 +30,7 @@ Current target:
 
 ## Hugging Face model download
 
-Whisper `ggml-small.bin` is downloaded from Hugging Face. If the download fails with `401`, add a read token:
+Whisper `ggml-medium.bin` is downloaded from Hugging Face. If the download fails with `401`, add a read token:
 
 ```bash
 cp .env.example .env
@@ -105,7 +105,7 @@ Main artifacts:
 - `sessions/<session-id>/transcript.json`
 - `sessions/<session-id>/recap.md`
 - `exports/<session-id>.md`
-- `models/ggml-small.bin`
+- `models/ggml-medium.bin`
 
 If `Save raw audio` is off, `mic.wav` and `system.wav` are deleted after a successful finalization.
 

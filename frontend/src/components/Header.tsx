@@ -1,6 +1,6 @@
 import {
   ArrowLeft,
-  Download,
+  Boxes,
   LoaderCircle,
   Moon,
   RefreshCw,
@@ -22,7 +22,7 @@ interface HeaderProps {
   theme: "light" | "dark";
   onToggleTheme: () => void;
   onRefresh: () => void;
-  onDownloadModel: () => void;
+  onOpenModelPicker: () => void;
   onOpenSettings: () => void;
   onBackToMeetings: () => void;
 }
@@ -35,13 +35,15 @@ export function Header({
   theme,
   onToggleTheme,
   onRefresh,
-  onDownloadModel,
+  onOpenModelPicker,
   onOpenSettings,
   onBackToMeetings,
 }: HeaderProps) {
-  const modelReady = modelStatus?.defaultModelExists ?? false;
   const isDownloading = modelStatus?.isDownloading ?? false;
   const onSettings = screen === "meetings";
+  const selectedModelLabel = modelStatus?.selectedModelLabel ?? "Whisper model";
+  const selectedModelReady = modelStatus?.selectedModelExists ?? false;
+  const downloadProgress = modelStatus?.downloadProgressPercent ?? null;
 
   return (
     <header className="glass-panel flex flex-wrap items-center justify-between gap-4 rounded-2xl px-5 py-4">
@@ -93,20 +95,19 @@ export function Header({
 
         <button
           type="button"
-          onClick={onDownloadModel}
-          disabled={isDownloading || modelReady}
-          className="inline-flex items-center gap-2 rounded-xl bg-accent px-3 py-2 text-sm font-medium text-accent-foreground disabled:opacity-60"
+          onClick={onOpenModelPicker}
+          className="inline-flex items-center gap-2 rounded-xl bg-accent px-3 py-2 text-sm font-medium text-accent-foreground"
         >
           {isDownloading ? (
             <LoaderCircle className="size-4 animate-spin" />
           ) : (
-            <Download className="size-4" />
+            <Boxes className="size-4" />
           )}
           {isDownloading
-            ? "Downloading model..."
-            : modelReady
-              ? "Whisper model ready"
-              : "Download Whisper model"}
+            ? `${selectedModelLabel} ${downloadProgress !== null ? `${downloadProgress.toFixed(0)}%` : ""}`.trim()
+            : selectedModelReady
+              ? selectedModelLabel
+              : `Download ${selectedModelLabel}`}
         </button>
 
         {onSettings ? (

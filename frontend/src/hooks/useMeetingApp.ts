@@ -5,10 +5,22 @@ import * as api from "@/api/tauri";
 import type {
   AppStateSnapshot,
   CaptureStateSnapshot,
+  LiveTranscriptSnapshot,
   ModelStatusSnapshot,
   SessionDetailSnapshot,
   StatusKind,
 } from "@/types";
+
+interface OperationErrorEvent {
+  message: string;
+}
+
+interface ModelDownloadProgressEvent {
+  modelId: string;
+  progressPercent: number | null;
+  downloadedBytes: number;
+  totalBytes: number | null;
+}
 
 function pickSessionId(
   sessions: AppStateSnapshot["sessions"],
@@ -29,6 +41,7 @@ export function useMeetingApp() {
   const [captureState, setCaptureState] = useState<CaptureStateSnapshot | null>(null);
   const [modelStatus, setModelStatus] = useState<ModelStatusSnapshot | null>(null);
   const [sessionDetail, setSessionDetail] = useState<SessionDetailSnapshot | null>(null);
+  const [liveTranscript, setLiveTranscript] = useState<LiveTranscriptSnapshot | null>(null);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [ipcConnected, setIpcConnected] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(true);
@@ -77,16 +90,21 @@ export function useMeetingApp() {
     setSessionDetail(detail);
   }, []);
 
+  const refreshLiveTranscript = useCallback(async () => {
+    const live = await api.getLiveTranscript();
+    setLiveTranscript(live);
+  }, []);
+
   const refreshAll = useCallback(async () => {
     setIsRefreshing(true);
     try {
       const { selectedSessionId: sessionId } = await refreshCore();
-      await refreshSessionDetail(sessionId);
+      await Promise.all([refreshSessionDetail(sessionId), refreshLiveTranscript()]);
       setIpcConnected(true);
     } finally {
       setIsRefreshing(false);
     }
-  }, [refreshCore, refreshSessionDetail]);
+  }, [refreshCore, refreshLiveTranscript, refreshSessionDetail]);
 
   useEffect(() => {
     if (!api.isTauriAvailable()) {
@@ -110,20 +128,59 @@ export function useMeetingApp() {
     }
 
     let cancelled = false;
-    const unlistenPromise = listen("state-changed", () => {
+    const unlistenState = listen("state-changed", () => {
       if (cancelled) {
         return;
       }
       refreshAll()
-        .then(() => setStatus("State updated.", "success"))
         .catch((error: Error) =>
           setStatus(`Background refresh failed: ${error.message}`, "error"),
         );
     });
 
+    const unlistenOperationError = listen<OperationErrorEvent>("operation-error", (event) => {
+      if (cancelled) {
+        return;
+      }
+      setStatus(event.payload.message, "error");
+    });
+
+    const unlistenModelProgress = listen<ModelDownloadProgressEvent>(
+      "model-download-progress",
+      (event) => {
+        if (cancelled) {
+          return;
+        }
+        setModelStatus((previous) => {
+          if (!previous) {
+            return previous;
+          }
+
+          return {
+            ...previous,
+            isDownloading: true,
+            downloadModelId: event.payload.modelId as typeof previous.selectedModelId,
+            downloadProgressPercent: event.payload.progressPercent,
+            downloadDownloadedBytes: event.payload.downloadedBytes,
+            downloadTotalBytes: event.payload.totalBytes,
+          };
+        });
+      },
+    );
+
+    const unlistenLive = listen<LiveTranscriptSnapshot>("live-transcript-updated", (event) => {
+      if (cancelled) {
+        return;
+      }
+      setLiveTranscript(event.payload);
+    });
+
     return () => {
       cancelled = true;
-      void unlistenPromise.then((unlisten) => unlisten());
+      void unlistenState.then((unlisten) => unlisten());
+      void unlistenOperationError.then((unlisten) => unlisten());
+      void unlistenModelProgress.then((unlisten) => unlisten());
+      void unlistenLive.then((unlisten) => unlisten());
     };
   }, [refreshAll, setStatus]);
 
@@ -179,11 +236,15 @@ export function useMeetingApp() {
     activeSession?.status === "processing" ||
     selectedSession?.status === "processing";
 
+  const isLiveRecording =
+    activeSession?.status === "recording" || activeSession?.status === "recovered";
+
   return {
     appState,
     captureState,
     modelStatus,
     sessionDetail,
+    liveTranscript,
     selectedSessionId,
     selectSession,
     activeSession,
@@ -191,6 +252,7 @@ export function useMeetingApp() {
     ipcConnected,
     isRefreshing,
     isProcessing,
+    isLiveRecording,
     statusMessage,
     statusKind,
     setStatus,
