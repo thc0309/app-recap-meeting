@@ -54,14 +54,7 @@ pub fn poll_live_session(
     let system_audio_path = live.system_audio_path.clone();
 
     with_whisper_context(model_path, |context| {
-        poll_source(
-            live,
-            context,
-            &mic_audio_path,
-            "mic_local",
-            "LOCAL",
-            true,
-        )?;
+        poll_source(live, context, &mic_audio_path, "mic_local", "LOCAL", true)?;
         poll_source(
             live,
             context,
@@ -169,6 +162,8 @@ fn transcribe_pcm_buffer(
     let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
     params.set_n_threads(4);
     params.set_translate(false);
+    // whisper-rs defaults to "en"; None keeps Whisper in source-language auto-detect mode.
+    params.set_language(None);
     params.set_print_special(false);
     params.set_print_progress(false);
     params.set_print_realtime(false);
@@ -213,7 +208,11 @@ fn read_new_mono_samples(
     let bytes = std::fs::read(path)
         .map_err(|error| format!("failed to read wav {}: {error}", path.display()))?;
     if bytes.len() < 44 {
-        return Ok((Vec::new(), from_sample, sample_offset_to_ms(from_sample, target_rate)));
+        return Ok((
+            Vec::new(),
+            from_sample,
+            sample_offset_to_ms(from_sample, target_rate),
+        ));
     }
 
     let info = parse_wav_info(&bytes)
@@ -221,7 +220,11 @@ fn read_new_mono_samples(
 
     let bytes_per_frame = (info.bits_per_sample / 8) as usize * info.channels as usize;
     if bytes_per_frame == 0 {
-        return Ok((Vec::new(), from_sample, sample_offset_to_ms(from_sample, target_rate)));
+        return Ok((
+            Vec::new(),
+            from_sample,
+            sample_offset_to_ms(from_sample, target_rate),
+        ));
     }
 
     let available_bytes = bytes.len().saturating_sub(info.data_offset);

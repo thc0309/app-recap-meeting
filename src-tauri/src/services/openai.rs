@@ -111,9 +111,7 @@ fn format_openai_error(status: StatusCode, body: &str) -> String {
             let suffix = api_message
                 .map(|message| format!(": {message}"))
                 .unwrap_or_default();
-            format!(
-                "OpenAI Chat Completions API returned non-success status {status}{suffix}"
-            )
+            format!("OpenAI Chat Completions API returned non-success status {status}{suffix}")
         }
     }
 }

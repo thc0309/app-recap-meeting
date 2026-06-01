@@ -21,6 +21,8 @@ export function CapturePanel({
   onSimulateLoss,
   onRecoverDevice,
 }: CapturePanelProps) {
+  const showSpeakerBleedWarning = captureState?.platformName === "macos";
+
   return (
     <section className="glass-panel rounded-2xl p-5">
       <h2 className="text-lg font-semibold">Capture status</h2>
@@ -28,6 +30,17 @@ export function CapturePanel({
         Platform: {captureState?.platformName ?? "unknown"} · Backend:{" "}
         {captureState?.systemAudioBackend ?? "n/a"}
       </p>
+
+      {showSpeakerBleedWarning ? (
+        <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-100">
+          <p className="font-medium">macOS speaker bleed warning</p>
+          <p className="mt-1 text-amber-800 dark:text-amber-200">
+            If you play meeting audio through speakers while mic capture is on, the microphone can
+            re-record that speaker output. That creates duplicated or overlapping transcript
+            segments. Headphones are the safest path right now.
+          </p>
+        </div>
+      ) : null}
 
       <div className="mt-4 space-y-3">
         {captureState?.sources.map((source) => (

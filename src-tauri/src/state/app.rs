@@ -274,7 +274,9 @@ impl AppState {
                         let model_path = app_state.default_model_path();
 
                         if let Some(live) = app_state.live_transcription.as_mut() {
-                            if let Err(error) = live_transcription::poll_live_session(live, &model_path) {
+                            if let Err(error) =
+                                live_transcription::poll_live_session(live, &model_path)
+                            {
                                 println!("Live transcription poll failed: {error}");
                             }
                         }
@@ -403,12 +405,7 @@ impl AppState {
 
         if self.transcription_enabled {
             if let Some(app) = app_handle {
-                self.start_live_transcription(
-                    session_id,
-                    mic_audio_path,
-                    system_audio_path,
-                    app,
-                );
+                self.start_live_transcription(session_id, mic_audio_path, system_audio_path, app);
             }
         }
 
@@ -597,7 +594,10 @@ impl AppState {
                     }
                     Err(err) => {
                         println!("Background task panicked: {err}");
-                        (SessionStatus::Error, Some(format!("Background task panicked: {err}")))
+                        (
+                            SessionStatus::Error,
+                            Some(format!("Background task panicked: {err}")),
+                        )
                     }
                 };
 
@@ -1109,10 +1109,7 @@ impl AppState {
             .unwrap_or_else(model_download::default_model)
     }
 
-    fn model_path_for_spec(
-        &self,
-        model: &model_download::WhisperModelSpec,
-    ) -> std::path::PathBuf {
+    fn model_path_for_spec(&self, model: &model_download::WhisperModelSpec) -> std::path::PathBuf {
         self.paths.models_dir.join(model.file_name)
     }
 

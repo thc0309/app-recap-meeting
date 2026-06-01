@@ -55,7 +55,9 @@ pub fn create_session(
 }
 
 #[tauri::command]
-pub fn get_live_transcript(state: State<'_, Mutex<AppState>>) -> Result<LiveTranscriptSnapshot, String> {
+pub fn get_live_transcript(
+    state: State<'_, Mutex<AppState>>,
+) -> Result<LiveTranscriptSnapshot, String> {
     let app_state = state
         .lock()
         .map_err(|_| "state lock poisoned".to_string())?;
