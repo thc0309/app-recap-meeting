@@ -1,3 +1,3 @@
 fn main() {
-    meeting_recap_app_lib::run();
+    meeting_transcriber_lib::run();
 }

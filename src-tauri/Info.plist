@@ -2,9 +2,9 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+  <key>LSMinimumSystemVersion</key>
+  <string>13.0</string>
   <key>NSMicrophoneUsageDescription</key>
-  <string>Meeting Recap App needs microphone access to record and transcribe meetings.</string>
-  <key>NSCameraUsageDescription</key>
-  <string>Meeting Recap App may request screen or window sharing for meeting capture.</string>
+  <string>Meeting Transcriber captures your microphone so it can transcribe your side of the meeting.</string>
 </dict>
 </plist>

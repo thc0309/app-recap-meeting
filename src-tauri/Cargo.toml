@@ -1,20 +1,33 @@
 [package]
-name = "meeting-recap-app"
+name = "meeting-transcriber"
 version = "0.1.0"
-description = "Tauri shell for local-first meeting recap"
-authors = ["chuongtong"]
+description = "Core scaffold for the Meeting Transcriber desktop app"
+authors = ["Chuong Tong"]
+license = "MIT"
 edition = "2021"
+rust-version = "1.77"
 
 [lib]
-name = "meeting_recap_app_lib"
+name = "meeting_transcriber_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
-tauri-plugin-dialog = "2"
-tauri-plugin-shell = "2"
+directories = "6"
+dotenvy = "0.15"
+hound = "3.5"
+reqwest = { version = "0.12", default-features = false, features = [
+  "blocking",
+  "json",
+  "rustls-tls",
+  "gzip",
+  "brotli",
+  "deflate",
+] }
+rusqlite = { version = "0.37", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tauri = { version = "2", features = [] }
+whisper-rs = "0.16"
