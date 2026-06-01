@@ -63,9 +63,9 @@ npm run dev
 
 ## Ghi chú
 
-- App mới sẽ dùng lại script transcript ở thư mục cha:
-  - `../run_transcribe.sh`
-  - `../run_transcribe_with_speakers.sh`
+- Script transcript nằm ngay trong dự án tại:
+  - `transcribe/run_transcribe.sh`
+  - `transcribe/run_transcribe_with_speakers.sh`
 - Mặc định đang đi theo hướng `web local-first`
 - Có thể bọc thành `Tauri` ở phase sau mà không phải viết lại backend
 - Tren macOS web, `system audio` phu thuoc vao browser share audio capability. Chrome/Chromium la lua chon phu hop nhat.

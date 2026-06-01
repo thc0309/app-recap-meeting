@@ -9,7 +9,7 @@
 
 ## Phase 2: Transcript integration
 
-- Kết nối backend với script `run_transcribe.sh`
+- Kết nối backend với script `transcribe/run_transcribe.sh`
 - Tạo output folder riêng cho từng meeting
 - Parse `timestamps.txt` thành transcript segments
 - Lưu DB và expose API

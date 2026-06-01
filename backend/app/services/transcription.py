@@ -77,7 +77,7 @@ def run_transcription(meeting_id: str, *, use_speakers: bool = False) -> Transcr
 
     subprocess.run(
         [str(script_path), str(source_path), str(output_dir), model_name],
-        cwd=settings.legacy_root,
+        cwd=settings.transcribe_root,
         check=True,
     )
 
